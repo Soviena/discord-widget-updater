@@ -44,6 +44,9 @@ query ($username: String) {
   completedList: MediaListCollection(userName: $username, type: ANIME, status: COMPLETED) {
     lists {
       entries {
+        media {
+          id
+        }
         completedAt {
           year
         }
@@ -174,7 +177,7 @@ function buildPayload(stats) {
 }
 
 async function postToDiscord(payload, endpoint, token) {
-  console.log('[discord] sending PATCH to widget endpoint');
+  console.log('[discord] sending PATCH:', JSON.stringify(payload));
   const response = await fetch(endpoint, {
     method: 'PATCH',
     headers: {
@@ -195,7 +198,15 @@ async function postToDiscord(payload, endpoint, token) {
     throw new Error(`Discord API ${response.status}: ${body}`);
   }
 
-  return response.json();
+  // 204 No Content is a valid success response — no body to parse
+  if (response.status === 204) {
+    console.log('[discord] widget updated successfully (204 No Content)');
+    return null;
+  }
+
+  const result = await response.json();
+  console.log('[discord] response body:', JSON.stringify(result));
+  return result;
 }
 
 async function run(env) {
