@@ -60,6 +60,7 @@ async function fetchAnilistData(username) {
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'User-Agent': 'discord-widget-updater/1.0 (https://github.com/soviena/discord-widget-updater)',
     },
     body: JSON.stringify({
       query: ANILIST_QUERY,
