@@ -1,30 +1,31 @@
 #!/bin/bash
 set -e
 
+if [ -z "$TRIGGER_SECRET" ]; then
+  echo "Error: TRIGGER_SECRET env var is not set."
+  echo "Export it before running: TRIGGER_SECRET=<your-secret> npm run deploy"
+  exit 1
+fi
+
 echo "Deploying worker..."
-npx wrangler deploy
+DEPLOY_OUT=$(npx wrangler deploy 2>&1)
+echo "$DEPLOY_OUT"
+
+# Anchor to indented lines only to avoid picking up preview/version URLs
+WORKER_URL=$(echo "$DEPLOY_OUT" | grep -E '^\s+https://.*\.workers\.dev' | grep -oP 'https://\S+' | head -1)
+
+if [ -z "$WORKER_URL" ]; then
+  echo "Could not extract worker URL — trigger manually with:"
+  echo "  curl -X POST -H 'X-Trigger-Secret: \$TRIGGER_SECRET' <your-worker-url>"
+  exit 1
+fi
 
 echo ""
-echo "Starting remote dev session to fire initial scheduled run..."
-npx wrangler dev --remote --test-scheduled --port 8787 > /tmp/wrangler-dev.log 2>&1 &
-DEV_PID=$!
-
-# Wait for the dev server to be ready
-echo -n "Waiting for dev server"
-for i in $(seq 1 30); do
-  if curl -s "http://localhost:8787" > /dev/null 2>&1; then
-    break
-  fi
-  echo -n "."
-  sleep 1
-done
+echo "Triggering immediate run at $WORKER_URL ..."
+HTTP_CODE=$(curl -s -o /tmp/widget-response.json -w "%{http_code}" \
+  -X POST \
+  -H "X-Trigger-Secret: ${TRIGGER_SECRET}" \
+  "$WORKER_URL")
+echo "HTTP $HTTP_CODE"
+cat /tmp/widget-response.json
 echo ""
-
-echo "Triggering scheduled event..."
-curl -s -o /dev/null -w "HTTP %{http_code}\n" \
-  "http://localhost:8787/__scheduled?cron=0+*+*+*+*"
-
-kill $DEV_PID 2>/dev/null || true
-wait $DEV_PID 2>/dev/null || true
-
-echo "Done — Discord widget updated."

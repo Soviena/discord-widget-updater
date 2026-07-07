@@ -25,6 +25,7 @@ query ($username: String) {
       entries {
         progress
         score(format: POINT_100)
+        updatedAt
         media {
           id
           title {
@@ -95,14 +96,19 @@ function processData(data) {
 
   const { User, currentWatching, completedList } = data;
 
+  if (!User) throw new Error('AniList user not found or profile is private');
+
+  const statuses = User.statistics.anime.statuses ?? [];
   const getStatusCount = (status) => {
-    const stat = User.statistics.anime.statuses.find(s => s.status === status);
+    const stat = statuses.find(s => s.status === status);
     return stat ? stat.count : 0;
   };
 
-  // Deduplicate to avoid counting custom list duplicates
-  const allWatchingRaw = currentWatching.lists.flatMap(l => l.entries);
-  const watchingEntries = deduplicateByMediaId(allWatchingRaw);
+  // Flatten, deduplicate, then sort globally by updatedAt so last-watched
+  // is correct even when the user has custom lists (per-list sort isn't global).
+  const allWatchingRaw = (currentWatching?.lists ?? []).flatMap(l => l.entries);
+  const watchingEntries = deduplicateByMediaId(allWatchingRaw)
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 
   const lastEntry = watchingEntries[0];
 
@@ -110,7 +116,7 @@ function processData(data) {
     e => e.media.season === currentSeason && e.media.seasonYear === currentYear
   ).length;
 
-  const allCompleted = completedList.lists.flatMap(l => l.entries);
+  const allCompleted = (completedList?.lists ?? []).flatMap(l => l.entries);
   const thisYearCount = allCompleted.filter(e => e.completedAt?.year === currentYear).length;
   const lastYearCount = allCompleted.filter(e => e.completedAt?.year === lastYear).length;
 
@@ -187,8 +193,25 @@ export default {
     }
   },
 
-  // Required by wrangler dev --test-scheduled even when workers_dev = false
   async fetch(request, env, ctx) {
-    return new Response('Not Found', { status: 404 });
+    if (request.method !== 'POST') {
+      return new Response('Method Not Allowed', { status: 405 });
+    }
+    const secret = request.headers.get('X-Trigger-Secret');
+    if (!secret || secret !== env.TRIGGER_SECRET) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+    try {
+      const { stats } = await run(env);
+      return new Response(JSON.stringify({ success: true, stats }, null, 2), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      console.error('Fetch trigger failed:', err.message);
+      return new Response(JSON.stringify({ success: false, error: 'Internal error' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
   },
 };
