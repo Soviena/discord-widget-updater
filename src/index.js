@@ -60,6 +60,7 @@ async function fetchAnilistData(username, token) {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
     'Authorization': `Bearer ${token}`,
+    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
   };
   const requestBody = JSON.stringify({
     query: ANILIST_QUERY,
