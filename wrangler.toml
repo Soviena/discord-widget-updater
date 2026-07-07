@@ -1,4 +1,4 @@
-name = "anilist-discord-widget"
+name = "discord-widget-updater"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
