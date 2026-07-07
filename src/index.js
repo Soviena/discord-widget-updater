@@ -55,12 +55,15 @@ query ($username: String) {
 `;
 
 async function fetchAnilistData(username) {
+  console.log(`[anilist] fetching data for user: ${username}`);
   const response = await fetch(ANILIST_GRAPHQL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'User-Agent': 'discord-widget-updater/1.0 (https://github.com/soviena/discord-widget-updater)',
+      'Origin': 'https://anilist.co',
+      'Referer': 'https://anilist.co/',
+      'User-Agent': 'Mozilla/5.0 (compatible; discord-widget-updater/1.0)',
     },
     body: JSON.stringify({
       query: ANILIST_QUERY,
@@ -68,14 +71,21 @@ async function fetchAnilistData(username) {
     }),
   });
 
+  console.log(`[anilist] response status: ${response.status}`);
+
   if (!response.ok) {
+    const body = await response.text();
+    console.error(`[anilist] error body: ${body.slice(0, 500)}`);
     throw new Error(`AniList API responded with ${response.status}`);
   }
 
   const json = await response.json();
   if (json.errors) {
+    console.error(`[anilist] GraphQL errors: ${JSON.stringify(json.errors)}`);
     throw new Error(`AniList GraphQL error: ${JSON.stringify(json.errors)}`);
   }
+
+  console.log('[anilist] data fetched successfully');
   return json.data;
 }
 
@@ -95,6 +105,8 @@ function processData(data) {
   const lastYear = currentYear - 1;
   const currentSeason = getCurrentSeason();
 
+  console.log(`[process] season=${currentSeason} year=${currentYear}`);
+
   const { User, currentWatching, completedList } = data;
 
   if (!User) throw new Error('AniList user not found or profile is private');
@@ -111,7 +123,14 @@ function processData(data) {
   const watchingEntries = deduplicateByMediaId(allWatchingRaw)
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 
+  console.log(`[process] watching entries (deduped): ${watchingEntries.length}`);
+
   const lastEntry = watchingEntries[0];
+  if (lastEntry) {
+    console.log(`[process] last watched: "${lastEntry.media?.title?.english || lastEntry.media?.title?.romaji}" ep=${lastEntry.progress} score=${lastEntry.score}`);
+  } else {
+    console.log('[process] no currently watching entries found');
+  }
 
   const currentSeasonCount = watchingEntries.filter(
     e => e.media.season === currentSeason && e.media.seasonYear === currentYear
@@ -120,6 +139,8 @@ function processData(data) {
   const allCompleted = (completedList?.lists ?? []).flatMap(l => l.entries);
   const thisYearCount = allCompleted.filter(e => e.completedAt?.year === currentYear).length;
   const lastYearCount = allCompleted.filter(e => e.completedAt?.year === lastYear).length;
+
+  console.log(`[process] this_season=${currentSeasonCount} total_watching=${getStatusCount('CURRENT')} planning=${getStatusCount('PLANNING')} completed=${getStatusCount('COMPLETED')} this_year=${thisYearCount} last_year=${lastYearCount}`);
 
   return {
     animeName: lastEntry?.media?.title?.english || lastEntry?.media?.title?.romaji || 'N/A',
@@ -156,6 +177,7 @@ function buildPayload(stats) {
 }
 
 async function postToDiscord(payload, endpoint, token) {
+  console.log('[discord] sending PATCH to widget endpoint');
   const response = await fetch(endpoint, {
     method: 'PATCH',
     headers: {
@@ -168,8 +190,11 @@ async function postToDiscord(payload, endpoint, token) {
     body: JSON.stringify(payload),
   });
 
+  console.log(`[discord] response status: ${response.status}`);
+
   if (!response.ok) {
     const body = await response.text();
+    console.error(`[discord] error body: ${body}`);
     throw new Error(`Discord API ${response.status}: ${body}`);
   }
 
@@ -177,20 +202,23 @@ async function postToDiscord(payload, endpoint, token) {
 }
 
 async function run(env) {
+  console.log('[run] starting update');
   const data = await fetchAnilistData(env.ANILIST_USERNAME);
   const stats = processData(data);
   const payload = buildPayload(stats);
   const result = await postToDiscord(payload, env.DISCORD_ENDPOINT, env.BOT_TOKEN);
+  console.log('[run] update complete');
   return { stats, result };
 }
 
 export default {
   async scheduled(event, env, ctx) {
+    console.log(`[scheduled] cron fired: ${event.cron}`);
     try {
       await run(env);
-      console.log('Discord widget updated successfully');
+      console.log('[scheduled] done');
     } catch (err) {
-      console.error('Update failed:', err.message);
+      console.error(`[scheduled] failed: ${err.message}`);
     }
   },
 
@@ -200,15 +228,17 @@ export default {
     }
     const secret = request.headers.get('X-Trigger-Secret');
     if (!secret || secret !== env.TRIGGER_SECRET) {
+      console.warn('[fetch] unauthorized trigger attempt');
       return new Response('Unauthorized', { status: 401 });
     }
+    console.log('[fetch] manual trigger authorized');
     try {
       const { stats } = await run(env);
       return new Response(JSON.stringify({ success: true, stats }, null, 2), {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {
-      console.error('Fetch trigger failed:', err.message);
+      console.error(`[fetch] failed: ${err.message}`);
       return new Response(JSON.stringify({ success: false, error: 'Internal error' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
