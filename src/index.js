@@ -187,20 +187,8 @@ export default {
     }
   },
 
+  // Required by wrangler dev --test-scheduled even when workers_dev = false
   async fetch(request, env, ctx) {
-    if (request.method !== 'POST' && request.method !== 'GET') {
-      return new Response('Method Not Allowed', { status: 405 });
-    }
-    try {
-      const { stats } = await run(env);
-      return new Response(JSON.stringify({ success: true, stats }, null, 2), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    } catch (err) {
-      return new Response(JSON.stringify({ success: false, error: err.message }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    return new Response('Not Found', { status: 404 });
   },
 };
