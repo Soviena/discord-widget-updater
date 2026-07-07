@@ -56,17 +56,21 @@ query ($username: String) {
 
 async function fetchAnilistData(username, token) {
   console.log(`[anilist] fetching data for user: ${username}`);
+  const requestHeaders = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'Authorization': `Bearer ${token}`,
+  };
+  const requestBody = JSON.stringify({
+    query: ANILIST_QUERY,
+    variables: { username },
+  });
+  console.log('[anilist] request headers:', JSON.stringify(requestHeaders));
+  console.log('[anilist] request body:', requestBody);
   const response = await fetch(ANILIST_GRAPHQL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      query: ANILIST_QUERY,
-      variables: { username },
-    }),
+    headers: requestHeaders,
+    body: requestBody,
   });
 
   console.log(`[anilist] response status: ${response.status}`);
