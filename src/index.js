@@ -1,4 +1,3 @@
-const ANILIST_GRAPHQL = 'https://graphql.anilist.co';
 
 function getCurrentSeason() {
   const month = new Date().getMonth() + 1;
@@ -54,24 +53,19 @@ query ($username: String) {
 }
 `;
 
-async function fetchAnilistData(username, token) {
+async function fetchAnilistData(username, proxyUrl, proxySecret) {
   console.log(`[anilist] fetching data for user: ${username}`);
-  const requestHeaders = {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'Authorization': `Bearer ${token}`,
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
-  };
-  const requestBody = JSON.stringify({
-    query: ANILIST_QUERY,
-    variables: { username },
-  });
-  console.log('[anilist] request headers:', JSON.stringify(requestHeaders));
-  console.log('[anilist] request body:', requestBody);
-  const response = await fetch(ANILIST_GRAPHQL, {
+  const response = await fetch(proxyUrl, {
     method: 'POST',
-    headers: requestHeaders,
-    body: requestBody,
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-Proxy-Secret': proxySecret,
+    },
+    body: JSON.stringify({
+      query: ANILIST_QUERY,
+      variables: { username },
+    }),
   });
 
   console.log(`[anilist] response status: ${response.status}`);
@@ -139,7 +133,7 @@ function processData(data) {
     e => e.media.season === currentSeason && e.media.seasonYear === currentYear
   ).length;
 
-  const allCompleted = (completedList?.lists ?? []).flatMap(l => l.entries);
+  const allCompleted = deduplicateByMediaId((completedList?.lists ?? []).flatMap(l => l.entries));
   const thisYearCount = allCompleted.filter(e => e.completedAt?.year === currentYear).length;
   const lastYearCount = allCompleted.filter(e => e.completedAt?.year === lastYear).length;
 
@@ -206,7 +200,7 @@ async function postToDiscord(payload, endpoint, token) {
 
 async function run(env) {
   console.log('[run] starting update');
-  const data = await fetchAnilistData(env.ANILIST_USERNAME, env.ANILIST_TOKEN);
+  const data = await fetchAnilistData(env.ANILIST_USERNAME, env.ANILIST_PROXY_URL, env.PROXY_SECRET);
   const stats = processData(data);
   const payload = buildPayload(stats);
   const result = await postToDiscord(payload, env.DISCORD_ENDPOINT, env.BOT_TOKEN);
