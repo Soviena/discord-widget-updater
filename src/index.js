@@ -54,16 +54,14 @@ query ($username: String) {
 }
 `;
 
-async function fetchAnilistData(username) {
+async function fetchAnilistData(username, token) {
   console.log(`[anilist] fetching data for user: ${username}`);
   const response = await fetch(ANILIST_GRAPHQL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'Origin': 'https://anilist.co',
-      'Referer': 'https://anilist.co/',
-      'User-Agent': 'Mozilla/5.0 (compatible; discord-widget-updater/1.0)',
+      'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify({
       query: ANILIST_QUERY,
@@ -203,7 +201,7 @@ async function postToDiscord(payload, endpoint, token) {
 
 async function run(env) {
   console.log('[run] starting update');
-  const data = await fetchAnilistData(env.ANILIST_USERNAME);
+  const data = await fetchAnilistData(env.ANILIST_USERNAME, env.ANILIST_TOKEN);
   const stats = processData(data);
   const payload = buildPayload(stats);
   const result = await postToDiscord(payload, env.DISCORD_ENDPOINT, env.BOT_TOKEN);
