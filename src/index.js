@@ -44,8 +44,19 @@ query ($username: String) {
   completedList: MediaListCollection(userName: $username, type: ANIME, status: COMPLETED) {
     lists {
       entries {
+        progress
+        score(format: POINT_100)
+        updatedAt
         media {
           id
+          title {
+            english
+            romaji
+          }
+          coverImage {
+            large
+          }
+          episodes
         }
         completedAt {
           year
@@ -117,26 +128,37 @@ function processData(data) {
     return stat ? stat.count : 0;
   };
 
-  // Flatten, deduplicate, then sort globally by updatedAt so last-watched
-  // is correct even when the user has custom lists (per-list sort isn't global).
+  // CURRENT entries — used for season count
   const allWatchingRaw = (currentWatching?.lists ?? []).flatMap(l => l.entries);
   const watchingEntries = deduplicateByMediaId(allWatchingRaw)
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 
-  console.log(`[process] watching entries (deduped): ${watchingEntries.length}`);
+  // COMPLETED entries — used for year counts and last-activity detection
+  const allCompleted = deduplicateByMediaId((completedList?.lists ?? []).flatMap(l => l.entries));
 
-  const lastEntry = watchingEntries[0];
+  // Last activity = most recently updated across CURRENT and COMPLETED
+  // so finishing an anime shows up immediately
+  const completedIds = new Set(allCompleted.map(e => e.media?.id));
+  const lastEntry = [...watchingEntries, ...allCompleted]
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
+  const lastEntryStatus = lastEntry
+    ? (completedIds.has(lastEntry.media?.id) ? 'COMPLETED' : 'CURRENT')
+    : 'CURRENT';
+  const infoTextMap = { CURRENT: 'Watched', COMPLETED: 'Finished', PLANNING: 'Planning' };
+  const infoText = infoTextMap[lastEntryStatus] ?? 'Watched';
+
   if (lastEntry) {
-    console.log(`[process] last watched: "${lastEntry.media?.title?.english || lastEntry.media?.title?.romaji}" ep=${lastEntry.progress} score=${lastEntry.score}`);
+    console.log(`[process] last activity: "${lastEntry.media?.title?.english || lastEntry.media?.title?.romaji}" ep=${lastEntry.progress} score=${lastEntry.score} updatedAt=${lastEntry.updatedAt}`);
   } else {
-    console.log('[process] no currently watching entries found');
+    console.log('[process] no activity found');
   }
+
+  console.log(`[process] watching entries (deduped): ${watchingEntries.length}`);
 
   const currentSeasonCount = watchingEntries.filter(
     e => e.media.season === currentSeason && e.media.seasonYear === currentYear
   ).length;
 
-  const allCompleted = deduplicateByMediaId((completedList?.lists ?? []).flatMap(l => l.entries));
   const thisYearCount = allCompleted.filter(e => e.completedAt?.year === currentYear).length;
   const lastYearCount = allCompleted.filter(e => e.completedAt?.year === lastYear).length;
 
@@ -148,6 +170,7 @@ function processData(data) {
     episodes: lastEntry?.media?.episodes ?? '?',
     thumbnail: lastEntry?.media?.coverImage?.large ?? '',
     score: lastEntry?.score ?? 0,
+    infoText,
     currentSeasonCount,
     totalWatching: getStatusCount('CURRENT'),
     totalPlanning: getStatusCount('PLANNING'),
@@ -161,6 +184,7 @@ function buildPayload(stats) {
   return {
     data: {
       dynamic: [
+        { type: 1, name: 'current_info_text', value: stats.infoText },
         { type: 1, name: 'score', value: `Tentative Score : ${stats.score}` },
         { type: 3, name: 'last_anime_pic', value: { url: stats.thumbnail } },
         { type: 1, name: 'episode', value: `Episode : ${stats.progress} of ${stats.episodes}` },
